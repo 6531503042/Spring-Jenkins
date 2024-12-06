@@ -16,6 +16,31 @@ pipeline {
             }
         }
         
+        stage('Test') {
+            steps {
+                sh './gradlew test'
+            }
+            post {
+                always {
+                    // Publish JUnit test results
+                    junit '**/build/test-results/test/*.xml'
+                    
+                    // Publish JaCoCo code coverage
+                    jacoco(
+                        execPattern: '**/build/jacoco/*.exec',
+                        classPattern: '**/build/classes/java/main',
+                        sourcePattern: '**/src/main/java'
+                    )
+                }
+            }
+        }
+        
+        stage('Integration Test') {
+            steps {
+                sh './gradlew integrationTest'
+            }
+        }
+        
         stage('Build') {
             steps {
                 sh './gradlew build'
@@ -26,6 +51,14 @@ pipeline {
             steps {
                 withSonarQubeEnv('SonarQube') {
                     sh './gradlew sonarqube'
+                }
+            }
+        }
+        
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 1, unit: 'HOURS') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
@@ -49,7 +82,16 @@ pipeline {
     
     post {
         always {
+            // Archive test reports
+            archiveArtifacts artifacts: '**/build/reports/**'
             cleanWs()
+        }
+        failure {
+            emailext (
+                subject: "Build Failed: ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
+                body: "Check console output at ${env.BUILD_URL}",
+                recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+            )
         }
     }
 } 
